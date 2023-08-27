@@ -164,30 +164,6 @@ class MPCComponent:
             "ubx": ubx,
         }
 
-    def add_obstacle_constraints(self, obs: List[Dict[str, float]]):
-        self.has_obs_constraint = True
-        self.obs = obs
-        # print(obs[0])
-        self.obs_len = len(obs)
-        for j in range(len(obs)):
-            for k in range(self.N + 1):
-                constraint = (
-                    self.rob_diameter / 2 + obs[j]["diameter"] / 2
-                ) - ca.sqrt(
-                    ((self.X[0, k] - obs[j]["x"]) ** 2)
-                    + ((self.X[1, k] - obs[j]["y"]) ** 2)
-                )
-                self.g = ca.vertcat(self.g, constraint)
-
-    def add_obstacle_args(self):
-        g_obs_len = (self.N + 1) * self.obs_len
-        lbg = ca.DM.zeros(g_obs_len, 1)
-        lbg[0:g_obs_len] = -ca.inf
-        self.args["lbg"] = ca.vertcat(self.args["lbg"], lbg)
-
-        ubg = ca.DM.zeros(g_obs_len, 1)
-        self.args["ubg"] = ca.vertcat(self.args["ubg"], ubg)
-
     def add_track_constraints(self, center_points, lane_width):
         self.has_track_constraint = True
         self.center_points = center_points
@@ -196,7 +172,6 @@ class MPCComponent:
             state_c = self.find_projection_to_center(
                 (self.X[0, k], self.X[1, k]), center_points
             )
-
             constraint = (
                 lane_width / 2
                 - self.rob_diameter / 2
@@ -205,6 +180,15 @@ class MPCComponent:
                     + ((self.X[1, k] - state_c[1]) ** 2)
                 )
             )
+
+            # constraint = ca.sqrt((self.X[0, k] - self.X[1, k]) ** 2)
+            # print(state_c[0])
+            # print(" ")
+            # print(" ")
+            # print(" ")
+            # print(" ")
+            # print(" ")
+            # print(" ------ END -----")
             self.g = ca.vertcat(self.g, constraint)
 
     def add_track_args(self):
@@ -301,7 +285,7 @@ class MPCComponent:
                 ubg=self.args["ubg"],
                 p=self.args["p"],
             )
-            print(len(self.DM2Arr(sol["g"])))
+            # print(len(self.DM2Arr(sol["g"])))
 
             u = ca.reshape(
                 sol["x"][self.n_states * (self.N + 1) :],
