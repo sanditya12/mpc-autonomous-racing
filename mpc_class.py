@@ -32,6 +32,7 @@ class MPCComponent:
         self.x = ca.SX.sym("x")
         self.y = ca.SX.sym("y")
         self.theta = ca.SX.sym("theta")
+
         self.states = ca.vertcat(self.x, self.y, self.theta)
         self.n_states = self.states.numel()
 
@@ -80,6 +81,7 @@ class MPCComponent:
             self.g = ca.vertcat(self.g, st_next - st_next_euler)
 
     def init_solver(self):
+        init_time = time()
         # Preparing the NLP
         OPT_variables = ca.vertcat(
             self.X.reshape(
@@ -97,7 +99,7 @@ class MPCComponent:
 
         opts = {
             "ipopt": {
-                "max_iter": 2000,
+                "max_iter": 200,
                 "print_level": 0,
                 "acceptable_tol": 1e-8,
                 "acceptable_obj_change_tol": 1e-6,
@@ -107,6 +109,7 @@ class MPCComponent:
 
         # Initialize solver
         self.solver = ca.nlpsol("solver", "ipopt", nlp_prob, opts)
+        print("Time for initializing solver: ", time() - init_time)
 
     def init_constraint_args(self):
         # Initialze Optimization Variables Constraints Vector
@@ -165,6 +168,7 @@ class MPCComponent:
         }
 
     def add_track_constraints(self, center_points, lane_width):
+        init_time = time()
         self.has_track_constraint = True
         self.center_points = center_points
 
@@ -180,16 +184,8 @@ class MPCComponent:
                     + ((self.X[1, k] - state_c[1]) ** 2)
                 )
             )
-
-            # constraint = ca.sqrt((self.X[0, k] - self.X[1, k]) ** 2)
-            # print(state_c[0])
-            # print(" ")
-            # print(" ")
-            # print(" ")
-            # print(" ")
-            # print(" ")
-            # print(" ------ END -----")
             self.g = ca.vertcat(self.g, constraint)
+        print("Time for adding track constraints: ", time() - init_time)
 
     def add_track_args(self):
         lbg = ca.DM.zeros(self.N + 1, 1)

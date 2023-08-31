@@ -6,13 +6,13 @@ from matplotlib.collections import LineCollection
 import matplotlib.patches as ptc
 from time import time
 
-from track_data import center_sample_points_v2
+from track_data import center_sample_points
 from track_data import left_boundary_points
 from track_data import right_boundary_points
 
 from helper import find_projection_to_center
 
-center_points = center_sample_points_v2.center_points
+center_points = center_sample_points.center_points
 left_boundary_points = left_boundary_points.left_boundary_points
 right_boundary_points = right_boundary_points.right_boundary_points
 
