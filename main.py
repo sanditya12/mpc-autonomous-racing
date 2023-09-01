@@ -1,4 +1,4 @@
-from mpc_class import MPCComponent
+from mpc_class_loop import MPCComponent
 from simulate import simulate
 import numpy as np
 from casadi import sin, cos, pi
@@ -9,23 +9,19 @@ from reference_generator import ReferenceGenerator
 center_points = center_sample_points.center_points
 
 x_init = 1.5
-y_init = 12
+y_init = 5
 theta_init = 0
-mpc = MPCComponent()
-
-rg = ReferenceGenerator(10, center_points)
-visible_center_points = rg.generate_map((x_init, y_init))
-x_ref, y_ref = visible_center_points[-1]
-
+horizon = 7
+mpc = MPCComponent(vision_horizon= horizon, N = 15)
 
 state_init = np.array([x_init, y_init, theta_init])
-state_target = np.array([x_ref, y_ref, 0])
 mpc.init_symbolic_vars()
 mpc.init_cost_fn_and_g_constraints()
 
 
 start_time = time()
-mpc.add_track_constraints(visible_center_points, 3)
+lane_width = 3
+mpc.add_track_constraints(lane_width/2)
 
 mpc.init_solver()
 
@@ -37,11 +33,18 @@ mpc.prepare_step(state_init)
 mpc.init_sim_params()
 
 print("preparing time: ", time() - start_time)
-
-while mpc.mpc_completed != True:
+#Target [1.1, 12.149999999999999]
+while time() - start_time < 10:
     init_time = time()
 
-    u = mpc.step_with_sim_params(state_init, state_target)
+    rg = ReferenceGenerator(horizon, center_points)
+    visible_center_points = rg.generate_map((state_init[0], state_init[1]))
+    x_ref, y_ref = visible_center_points[-1]
+    visible_center_points = np.array(visible_center_points).flatten()
+    state_target = np.array([x_ref, y_ref, 0])
+
+
+    u = mpc.step_with_sim_params(state_init, state_target, visible_center_points)
     state_init = mpc.simulate_step_shift(u, state_init)
 
     # state_arr = np.array(state_init)

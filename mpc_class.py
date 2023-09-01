@@ -16,13 +16,14 @@ class MPCComponent:
     omega_max = pi / 4
     omega_min = -omega_max
 
-    def __init__(self, N=20, sim_time=20, step_horizon=0.2, rob_diameter=0.3):
+    def __init__(self, N=20, sim_time=20, step_horizon=0.2, rob_diameter=1, vision_horizon = 10):
         self.N = N
         self.sim_time = sim_time
         self.step_horizon = step_horizon
-        self.rob_diameter = 1
+        self.rob_diameter = rob_diameter
         self.has_obs_constraint = False
         self.has_track_constraint = False
+        self.vision_horizon = vision_horizon
 
     def DM2Arr(self, dm):
         return np.array(dm.full())
@@ -35,6 +36,9 @@ class MPCComponent:
 
         self.states = ca.vertcat(self.x, self.y, self.theta)
         self.n_states = self.states.numel()
+
+        # Visible Center Points
+        self.center_points = ca.SX.sym
 
         # Control Symbolic Variables
         self.v = ca.SX.sym("v")
@@ -49,7 +53,8 @@ class MPCComponent:
         self.U = ca.SX.sym("U", self.n_controls, self.N)
 
         # Parameter vector containing initial and target states
-        self.P = ca.SX.sym("P", self.n_states + self.n_states)
+        self.n_state_params = self.n_states+self.n_states
+        self.P = ca.SX.sym("P", self.n_state_params + self.vision_horizon * 2)
 
         # state weights matrix (Q_X, Q_Y, Q_THETA)
         self.Q = ca.diagcat(self.Q_x, self.Q_y, self.Q_theta)
@@ -73,8 +78,8 @@ class MPCComponent:
         for k in range(self.N):
             st = self.X[:, k]
             con = self.U[:, k]
-            self.cost_fn += (st - self.P[self.n_states :]).T @ self.Q @ (
-                st - self.P[self.n_states :]
+            self.cost_fn += (st - self.P[self.n_states : self.n_state_params]).T @ self.Q @ (
+                st - self.P[self.n_states :self.n_state_params]
             ) + con.T @ self.R @ con
             st_next = self.X[:, k + 1]
             st_next_euler = st + (self.step_horizon * self.f(st, con))
@@ -167,17 +172,17 @@ class MPCComponent:
             "ubx": ubx,
         }
 
-    def add_track_constraints(self, center_points, lane_width):
+    def add_track_constraints(self, max_distance):
         init_time = time()
         self.has_track_constraint = True
-        self.center_points = center_points
+        self.center_points = self.P[self.n_state_params: ]
 
         for k in range(self.N + 1):
             state_c = self.find_projection_to_center(
-                (self.X[0, k], self.X[1, k]), center_points
+                (self.X[0, k], self.X[1, k]), self.center_points
             )
             constraint = (
-                lane_width / 2
+                max_distance
                 - self.rob_diameter / 2
                 - ca.sqrt(
                     ((self.X[0, k] - state_c[0]) ** 2)
@@ -195,13 +200,14 @@ class MPCComponent:
         ubg[0 : self.N + 1] = ca.inf
         self.args["ubg"] = ca.vertcat(self.args["ubg"], ubg)
 
-    def step(self, state_current: np.ndarray, state_target: np.ndarray):
+    def step(self, state_current: np.ndarray, state_target: np.ndarray, visible_center_points: np.ndarray):
         self.state_current = ca.DM(state_current)
         self.state_target = ca.DM(state_target)
+        self.visible_center_points = ca.DM(visible_center_points)
 
         u = ca.DM.zeros(self.n_controls, self.N)
         if ca.norm_2(self.state_current - self.state_target) > 1e-1:
-            self.args["p"] = ca.vertcat(self.state_current, self.state_target)
+            self.args["p"] = ca.vertcat(self.state_current, self.state_target, self.visible_center_points)
             self.args["x0"] = ca.vertcat(
                 ca.reshape(self.X0, self.n_states * (self.N + 1), 1),
                 ca.reshape(self.u0, self.n_controls * self.N, 1),
@@ -260,7 +266,7 @@ class MPCComponent:
         return
 
     def step_with_sim_params(
-        self, state_current: np.ndarray, state_target: np.ndarray
+        self, state_current: np.ndarray, state_target: np.ndarray, visible_center_points: np.ndarray
     ):
         self.state_current = ca.DM(state_current)
         self.state_target = ca.DM(state_target)
@@ -268,7 +274,7 @@ class MPCComponent:
         u = ca.DM.zeros(self.n_controls, self.N)
         if ca.norm_2(self.state_current - self.state_target) > 1e-1:
             t1 = time()
-            self.args["p"] = ca.vertcat(self.state_current, self.state_target)
+            self.args["p"] = ca.vertcat(self.state_current, self.state_target, visible_center_points)
             self.args["x0"] = ca.vertcat(
                 ca.reshape(self.X0, self.n_states * (self.N + 1), 1),
                 ca.reshape(self.u0, self.n_controls * self.N, 1),
@@ -339,12 +345,12 @@ class MPCComponent:
             "rob_diam": self.rob_diameter,
         }
 
-    def simulate_step_shift(self, u, state_init):
+    def simulate_step_shift(self, u, state_init) -> np.ndarray:
         f_value = self.f(state_init, u[:, 0])
-        return ca.DM.full(state_init + (self.step_horizon * f_value))
+        return self.DM2Arr( ca.DM(state_init + (self.step_horizon * f_value)))
 
     # Helper Function for Track Constraint (Finding Projection to Center Line)
-    def find_projection_on_segment(self, point, a, b):
+    def find_projection_on_segment(self, point:ca.SX, a:ca.SX, b:ca.SX):
         ap = [point[0] - a[0], point[1] - a[1]]
         ab = [b[0] - a[0], b[1] - a[1]]
 
@@ -358,13 +364,14 @@ class MPCComponent:
 
         return ca.vertcat(a[0] + ab[0] * t, a[1] + ab[1] * t)
 
-    def find_projection_to_center(self, position, center_points):
+    def find_projection_to_center(self, position: ca.SX, center_points: ca.SX) -> ca.SX:
+        num_points = center_points.size1() // 2
         closest_distance = ca.inf
         projected_point = ca.SX([0, 0])
 
-        for i in range(len(center_points) - 1):
-            a = center_points[i]
-            b = center_points[i + 1]
+        for i in range(num_points - 1):
+            a = [center_points[2*i], center_points[2*i+1]]
+            b = [center_points[2*(i + 1)], center_points[2*(i + 1)+1]]
 
             current_projected_point = self.find_projection_on_segment(
                 position, a, b

@@ -80,13 +80,13 @@ def simulate(
     plt.axis([-2, 20, -2, 20])
 
     # Track
+
+        # Track
     for i in range(len(center_points)):
         if i != len(center_points) - 1:
             xc, yc = center_points[i]
             xc_next, yc_next = center_points[i + 1]
             plt.plot([xc, xc_next], [yc, yc_next], "#D3D3D3")
-
-        # print(xc, " : ", yc)
 
     for i in range(len(left_boundary_points)):
         if i != len(left_boundary_points) - 1:
