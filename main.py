@@ -1,29 +1,29 @@
-from mpc_class import MPCComponent
+from mpc_class_loop import MPCComponent
 from simulate import simulate
 import numpy as np
 from casadi import sin, cos, pi
 from track_data import center_sample_points
 from time import time
+from reference_generator import ReferenceGenerator
 
 center_points = center_sample_points.center_points
 
-obs = [
-    # {"x": 4, "y": 2.5, "diameter": 4},
-]
+x_init = 1.5
+y_init = 5
+theta_init = 0
+horizon = 7
+mpc = MPCComponent(vision_horizon= horizon, N = 15)
 
-mpc = MPCComponent()
-state_init = np.array([1.5, 12, 0])
-state_target = np.array([6, 1.5, 0])
+state_init = np.array([x_init, y_init, theta_init])
 mpc.init_symbolic_vars()
 mpc.init_cost_fn_and_g_constraints()
 
-init_time = time()
-mpc.add_track_constraints(center_points, 3)
-print("Time for adding track constraints: ", time() - init_time)
 
-init_time = time()
+start_time = time()
+lane_width = 3
+mpc.add_track_constraints(lane_width/2)
+
 mpc.init_solver()
-print("Time for initializing solver: ", time() - init_time)
 
 mpc.init_constraint_args()
 
@@ -32,23 +32,27 @@ mpc.add_track_args()
 mpc.prepare_step(state_init)
 mpc.init_sim_params()
 
-while mpc.mpc_completed != True:
+print("preparing time: ", time() - start_time)
+#Target [1.1, 12.149999999999999]
+while time() - start_time < 10:
     init_time = time()
 
-    u = mpc.step_with_sim_params(state_init, state_target)
+    rg = ReferenceGenerator(horizon, center_points)
+    visible_center_points = rg.generate_map((state_init[0], state_init[1]))
+    x_ref, y_ref = visible_center_points[-1]
+    visible_center_points = np.array(visible_center_points).flatten()
+    state_target = np.array([x_ref, y_ref, 0])
+
+
+    u = mpc.step_with_sim_params(state_init, state_target, visible_center_points)
     state_init = mpc.simulate_step_shift(u, state_init)
 
-    state_arr = np.array(state_init)
+    # state_arr = np.array(state_init)
     print("Time per step: ", time() - init_time)
-    print("x: ", state_arr[0], ", y: ", state_arr[1], ", th: ", state_arr[2])
+    # print("x: ", state_arr[0], ", y: ", state_arr[1], ", th: ", state_arr[2])
     print("  ")
-# mpc.mpc_completed = True
-# while i != 5:
-#     u = mpc.step_with_sim_params(state_init, state_target)
-#     print(" ------ ")
-#     state_init = mpc.simulate_step_shift(u, state_init)
-#     i += 1
 
+print("Whole MPC time: ", time() - start_time)
 
 sim_params = mpc.get_simulation_params()
 simulate(
